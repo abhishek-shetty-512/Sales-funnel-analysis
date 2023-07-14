@@ -1,0 +1,98 @@
+create schema hostel_chain;
+use hostel_chain;
+
+select * from city_table;
+select * from hostel_table;
+select * from status_table;
+select * from lead_visit_table;
+
+                   /* Created summary table showing count of unique leads at each stage  */
+
+create table summary as (
+with cte as(
+select c.city as city
+, case when s.status = 'pre verified' then 1
+	   when s.status = 'Verifed' then 2
+	   when s.status = 'connected' then 3
+       when s.status = 'Visited' then 4
+       when s.status = 'Agreement' then 5
+       when s.status = 'onboarded' then 6 end as stages
+, s.status as status
+, count(distinct l.lead_id) as cnt
+from lead_visit_table l
+join city_table c on cityid = city_id
+join status_table s on l.substatus_id = s.substatus_id
+group by 3,1
+order by 1,2)
+
+select city
+, sum(case when status = 'pre verified' then cnt end) as Preverified_1
+, sum(case when status = 'Verifed' then cnt end) as Verified_2
+, sum(case when status = 'connected' then cnt end) as Connected_3
+, sum(case when status = 'Visited' then cnt end) as Visited_4
+, sum(case when status = 'Agreement' then cnt end) as Agreement_5
+, sum(case when status = 'onboarded' then cnt end) as Onboarded_6
+from cte
+group by 1);
+
+update summary set onboarded_6 = 0 where city = 'Chandigarh';
+
+select * from summary;
+
+                   /* Created percent_wise_summary table showing percentage of change of leads at each stage 
+                      Also created view(percent) before creating table */
+
+create view percent as (
+with cte as (
+select c.city as city
+, case when s.status = 'pre verified' then 1
+	   when s.status = 'Verifed' then 2
+	   when s.status = 'connected' then 3
+       when s.status = 'Visited' then 4
+       when s.status = 'Agreement' then 5
+       when s.status = 'onboarded' then 6 end as stages
+, s.status as status
+, count(distinct l.lead_id) as cnt
+from lead_visit_table l
+join city_table c on cityid = city_id
+join status_table s on l.substatus_id = s.substatus_id
+group by 3,1
+order by 1,2)
+
+(select *
+, lag(cnt) over(partition by city order by stages) as laag
+, round((cnt / lag(cnt) over(partition by city order by stages))*100) as prcnt
+from cte));
+
+create table percent_wise_summary as (
+select city
+, sum(case when status = 'pre verified' then prcnt end) as Preverified_1
+, sum(case when status = 'Verifed' then prcnt end) as Verified_2
+, sum(case when status = 'connected' then prcnt end) as Connected_3
+, sum(case when status = 'Visited' then prcnt end) as Visited_4
+, sum(case when status = 'Agreement' then prcnt end) as Agreement_5
+, sum(case when status = 'onboarded' then prcnt end) as Onboarded_6
+from percent
+group by 1);
+
+update percent_wise_summary set preverified_1 = 100;
+update percent_wise_summary set onboarded_6 = 0 where city = 'Chandigarh';
+
+select * from percent_wise_summary;
+
+                  /* Calculating overall conversion rate */
+
+select *
+, round((onboarded_6 / preverified_1) * 100) as conversion_rate
+from summary;
+
+                  /* Calculating overall lead counts at each stage alongwith overall conversion rate */
+
+select sum(Preverified_1) as Preverified
+, sum(Verified_2) as Verifed
+, sum(Connected_3) as Connected
+, sum(Visited_4) as Visited
+, sum(Agreement_5) as Agreement
+, sum(Onboarded_6) as Onboarded
+, round((sum(Onboarded_6) / sum(Preverified_1)) * 100, 2) as conversion_rate
+from summary
